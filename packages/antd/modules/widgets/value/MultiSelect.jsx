@@ -64,8 +64,10 @@ export default class MultiSelectWidget extends Component {
           }
         });
       });
+      this.props.setValue(newValues);
+    } else {
+      this.props.setValue(val);
     }
-    this.props.setValue(newValues);
   };
 
   filterOption = (input, option) => {
