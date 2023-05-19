@@ -47,7 +47,7 @@ export default class MultiSelectWidget extends Component {
 
   handleChange = (val) => {
     if (val && !val.length) {
-      val = undefined //not allow []
+      val = undefined; //not allow []
     }
     //Split on separators, space or comma, if allow custom values
     let newValues=[];
