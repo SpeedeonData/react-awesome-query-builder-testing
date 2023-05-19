@@ -1,0 +1,120 @@
+import React, { Component, PureComponent } from "react";
+import { Utils } from "@react-awesome-query-builder/core";
+import PropTypes from "prop-types";
+import treeStoreReducer from "../stores/tree";
+import context from "../stores/context";
+import {createStore} from "redux";
+import {Provider} from "react-redux";
+import * as actions from "../actions";
+import {createConfigMemo} from "../utils/configUtils";
+import {immutableEqual} from "../utils/stuff";
+import {createValidationMemo} from "../utils/validation";
+import {liteShouldComponentUpdate, useOnPropsChanged} from "../utils/reactUtils";
+import ConnectedQuery from "./Query";
+const {defaultRoot} = Utils.DefaultUtils;
+
+
+export default class QueryContainer extends Component {
+  static propTypes = {
+    //config
+    conjunctions: PropTypes.object.isRequired,
+    fields: PropTypes.object.isRequired,
+    types: PropTypes.object.isRequired,
+    operators: PropTypes.object.isRequired,
+    widgets: PropTypes.object.isRequired,
+    settings: PropTypes.object.isRequired,
+    ctx: PropTypes.object.isRequired,
+
+    onChange: PropTypes.func,
+    renderBuilder: PropTypes.func,
+    value: PropTypes.any, //instanceOf(Immutable.Map)
+  };
+
+  constructor(props, context) {
+    super(props, context);
+    useOnPropsChanged(this);
+
+    const { getExtended, getBasic } = createConfigMemo();
+    this.getMemoizedConfig = getExtended;
+    this.getBasicConfig = getBasic;
+    this.getMemoizedTree = createValidationMemo();
+    
+    const config = this.getMemoizedConfig(props);
+    const tree = props.value;
+    const validatedTree = this.getMemoizedTree(config, tree);
+
+    const reducer = treeStoreReducer(config, validatedTree, this.getMemoizedTree, this.setLastTree);
+    const store = createStore(reducer);
+
+    this.config = config;
+    this.state = {
+      store
+    };
+    this.QueryWrapper = (pr) => config.settings.renderProvider(pr, config.ctx);
+  }
+
+  setLastTree = (lastTree) => {
+    if (this.prevTree) {
+      this.prevprevTree = this.prevTree;
+    }
+    this.prevTree = lastTree;
+  };
+
+  shouldComponentUpdate = liteShouldComponentUpdate(this, {
+    value: (nextValue, prevValue, state) => { return false; }
+  });
+
+  onPropsChanged(nextProps) {
+    // compare configs
+    const prevProps = this.props;
+    const oldConfig = this.config;
+    const nextConfig = this.getMemoizedConfig(nextProps);
+    const isConfigChanged = oldConfig !== nextConfig;
+
+    // compare trees
+    const storeValue = this.state.store.getState().tree;
+    const isTreeChanged = !immutableEqual(nextProps.value, this.props.value) && !immutableEqual(nextProps.value, storeValue);
+    const currentTree = isTreeChanged ? nextProps.value || defaultRoot(nextProps) : storeValue;
+    const isTreeTrulyChanged = isTreeChanged && !immutableEqual(nextProps.value, this.prevTree) && !immutableEqual(nextProps.value, this.prevprevTree);
+    this.sanitizeTree = isTreeTrulyChanged || isConfigChanged;
+
+    if (isConfigChanged) {
+      if (prevProps.settings.renderProvider !== nextProps.settings.renderProvider) {
+        this.QueryWrapper = (props) => nextConfig.settings.renderProvider(props, nextConfig.ctx);
+      }
+      this.config = nextConfig;
+    }
+    
+    if (isTreeChanged || isConfigChanged) {
+      const validatedTree = this.getMemoizedTree(nextConfig, currentTree, oldConfig, this.sanitizeTree);
+      //return Promise.resolve().then(() => {
+      this.state.store.dispatch(
+        actions.tree.setTree(nextConfig, validatedTree)
+      );
+      //});
+    }
+  }
+
+  render() {
+    // `get_children` is deprecated!
+    const {renderBuilder, get_children, onChange} = this.props;
+    const {store} = this.state;
+    const config = this.config;
+    const QueryWrapper = this.QueryWrapper;
+
+    return (
+      <QueryWrapper config={config}>
+        <Provider store={store} context={context}>
+          <ConnectedQuery
+            config={config}
+            getMemoizedTree={this.getMemoizedTree}
+            getBasicConfig={this.getBasicConfig}
+            sanitizeTree={this.sanitizeTree}
+            onChange={onChange}
+            renderBuilder={renderBuilder || get_children}
+          />
+        </Provider>
+      </QueryWrapper>
+    );
+  }
+}
